@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import SideNavigation from "@/components/navigation/SideNavigation";
 import AuthProvider from "@/components/auth/AuthProvider";
 import { ClerkProvider } from "@/components/auth/ClerkProvider";
+import ClerkProfileAdapter from "@/components/auth/ClerkProfileAdapter";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -26,6 +27,8 @@ export default function RootLayout({
       <body className={cn("h-full bg-gray-50", geistSans.variable)}>
         <ClerkProvider>
           <AuthProvider>
+            {/* This adapter synchronizes Clerk user data with Supabase profiles */}
+            <ClerkProfileAdapter />
             <div className="flex h-full">
               {/* Main content area */}
               <SideNavigation />

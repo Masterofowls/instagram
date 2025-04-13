@@ -3,6 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useAuth, useUser } from '@clerk/nextjs';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/useAuthStore';
 import { 
@@ -13,7 +14,8 @@ import {
   FiMessageCircle, 
   FiHeart, 
   FiPlusSquare, 
-  FiMenu
+  FiMenu,
+  FiUser
 } from 'react-icons/fi';
 import Image from 'next/image';
 
@@ -29,10 +31,12 @@ const navItems = [
 
 const SideNavigation = () => {
   const pathname = usePathname();
-  const { user, profile, logout } = useAuthStore();
+  const { isSignedIn } = useAuth();
+  const { user: clerkUser } = useUser();
+  const { profile, logout } = useAuthStore();
   
   // If user is not authenticated and not on auth pages, don't show sidebar
-  if (!user && !pathname.startsWith('/auth')) {
+  if (!isSignedIn && !pathname.startsWith('/auth')) {
     return null;
   }
   
@@ -70,9 +74,10 @@ const SideNavigation = () => {
         </ul>
       </nav>
       
-      {profile && (
-        <div className="p-4 border-t border-gray-200 mt-auto">
-          <div className="flex items-center justify-between">
+      <div className="p-4 border-t border-gray-200 mt-auto">
+        <div className="flex items-center justify-between">
+          {profile ? (
+            // If Instagram profile exists, link to it
             <Link href={`/profile/${profile.username}`} className="flex items-center gap-3">
               {profile.avatar_url ? (
                 <Image
@@ -93,12 +98,50 @@ const SideNavigation = () => {
                 <p className="text-sm font-medium">{profile.username}</p>
               </div>
             </Link>
-            <button onClick={logout} className="text-sm text-blue-500">
+          ) : isSignedIn && clerkUser ? (
+            // If signed in with Clerk but Instagram profile not yet synced/loaded
+            <Link href="/settings/profile" className="flex items-center gap-3">
+              {clerkUser.imageUrl ? (
+                <Image
+                  src={clerkUser.imageUrl}
+                  alt={clerkUser.username || clerkUser.firstName || 'User'}
+                  width={32}
+                  height={32}
+                  className="rounded-full object-cover"
+                />
+              ) : (
+                <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center">
+                  <FiUser size={16} className="text-gray-600" />
+                </div>
+              )}
+              <div>
+                <p className="text-sm font-medium">{clerkUser.username || clerkUser.firstName || 'Profile'}</p>
+              </div>
+            </Link>
+          ) : (
+            // Fallback if no profile yet
+            <Link href="/settings/profile" className="flex items-center gap-3">
+              <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center">
+                <FiUser size={16} className="text-gray-600" />
+              </div>
+              <div>
+                <p className="text-sm font-medium">Profile</p>
+              </div>
+            </Link>
+          )}
+          {isSignedIn && (
+            <button 
+              onClick={() => {
+                logout();
+                window.location.href = '/sign-in';
+              }} 
+              className="text-sm text-blue-500"
+            >
               <FiMenu size={20} />
             </button>
-          </div>
+          )}
         </div>
-      )}
+      </div>
     </aside>
   );
 };

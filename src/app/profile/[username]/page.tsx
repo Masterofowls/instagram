@@ -3,9 +3,11 @@
 import React, { useEffect, useState } from 'react';
 import Image from 'next/image';
 import { useParams, useRouter } from 'next/navigation';
+import { useAuth } from '@clerk/nextjs';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/store/useAuthStore';
 import { usePostStore } from '@/store/usePostStore';
+import { useClerkProfile } from '@/hooks/useClerkProfile';
 import { Button } from '@/components/ui/Button';
 import { Tables } from '@/types/database.types';
 import { FiGrid, FiBookmark, FiTag, FiSettings } from 'react-icons/fi';
@@ -22,8 +24,13 @@ export default function ProfilePage() {
   const router = useRouter();
   const { user } = useAuthStore();
   const { fetchUserPosts } = usePostStore();
+  const { userId } = useAuth();
   
-  const [profile, setProfile] = useState<Tables<'profiles'> | null>(null);
+  const username = params.username as string;
+  
+  // Use our custom Clerk profile hook
+  const { profile, isOwnProfile, isLoading: profileLoading, refreshProfile } = useClerkProfile(username);
+  
   const [posts, setPosts] = useState<PostWithUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isFollowing, setIsFollowing] = useState(false);
@@ -31,31 +38,22 @@ export default function ProfilePage() {
   const [followingCount, setFollowingCount] = useState(0);
   const [activeTab, setActiveTab] = useState('posts');
   
-  const username = params.username as string;
-  
   useEffect(() => {
-    const fetchProfile = async () => {
+    const fetchProfileData = async () => {
+      if (!profile) return;
+      
       setIsLoading(true);
       
-      // Fetch profile by username
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('username', username)
-        .single();
-      
-      if (profileData) {
-        setProfile(profileData);
-        
+      try {
         // Fetch posts
-        const userPosts = await fetchUserPosts(profileData.id);
+        const userPosts = await fetchUserPosts(profile.id);
         setPosts(userPosts);
         
         // Fetch follower count
         const { count: followers } = await supabase
           .from('follows')
           .select('*', { count: 'exact', head: true })
-          .eq('following_id', profileData.id);
+          .eq('following_id', profile.id);
         
         setFollowersCount(followers || 0);
         
@@ -63,71 +61,73 @@ export default function ProfilePage() {
         const { count: following } = await supabase
           .from('follows')
           .select('*', { count: 'exact', head: true })
-          .eq('follower_id', profileData.id);
+          .eq('follower_id', profile.id);
         
         setFollowingCount(following || 0);
         
         // Check if current user is following this profile
-        if (user) {
+        if (userId && !isOwnProfile) {
           const { data: followData } = await supabase
             .from('follows')
             .select('*')
-            .eq('follower_id', user.id)
-            .eq('following_id', profileData.id)
-            .single();
+            .eq('follower_id', userId)
+            .eq('following_id', profile.id)
+            .maybeSingle();
           
           setIsFollowing(!!followData);
         }
+      } catch (error) {
+        console.error('Error fetching profile data:', error);
+      } finally {
+        setIsLoading(false);
       }
-      
-      setIsLoading(false);
     };
     
-    if (username) {
-      fetchProfile();
-    }
-  }, [username, fetchUserPosts, user]);
+    fetchProfileData();
+  }, [profile, fetchUserPosts, userId, isOwnProfile]);
   
   const handleFollow = async () => {
-    if (!user || !profile) return;
+    if (!userId || !profile) return;
     
-    if (isFollowing) {
-      // Unfollow
-      await supabase
-        .from('follows')
-        .delete()
-        .match({
-          follower_id: user.id,
-          following_id: profile.id,
-        });
-      
-      setIsFollowing(false);
-      setFollowersCount(prev => prev - 1);
-    } else {
-      // Follow
-      await supabase
-        .from('follows')
-        .insert({
-          follower_id: user.id,
-          following_id: profile.id,
-        });
-      
-      setIsFollowing(true);
-      setFollowersCount(prev => prev + 1);
-      
-      // Create notification
-      await supabase
-        .from('notifications')
-        .insert({
-          sender_id: user.id,
-          recipient_id: profile.id,
-          type: 'follow',
-          message: 'started following you',
-        });
+    try {
+      if (isFollowing) {
+        // Unfollow
+        await supabase
+          .from('follows')
+          .delete()
+          .match({
+            follower_id: userId,
+            following_id: profile.id,
+          });
+        
+        setIsFollowing(false);
+        setFollowersCount(prev => prev - 1);
+      } else {
+        // Follow
+        await supabase
+          .from('follows')
+          .insert({
+            follower_id: userId,
+            following_id: profile.id,
+          });
+        
+        setIsFollowing(true);
+        setFollowersCount(prev => prev + 1);
+        
+        // Create notification
+        await supabase
+          .from('notifications')
+          .insert({
+            sender_id: userId,
+            recipient_id: profile.id,
+            type: 'follow',
+            message: 'started following you',
+          });
+      }
+    } catch (error) {
+      console.error('Error updating follow status:', error);
     }
   };
-  
-  const isOwnProfile = user && profile && user.id === profile.id;
   
   if (isLoading) {
     return (
@@ -203,14 +203,18 @@ export default function ProfilePage() {
               <span className="font-semibold">{posts.length}</span>{' '}
               <span className="text-gray-500">posts</span>
             </div>
-            <div>
-              <span className="font-semibold">{followersCount}</span>{' '}
-              <span className="text-gray-500">followers</span>
-            </div>
-            <div>
-              <span className="font-semibold">{followingCount}</span>{' '}
-              <span className="text-gray-500">following</span>
-            </div>
+            <Link href={`/profile/${username}/followers`}>
+              <div className="cursor-pointer hover:opacity-80">
+                <span className="font-semibold">{followersCount}</span>{' '}
+                <span className="text-gray-500">followers</span>
+              </div>
+            </Link>
+            <Link href={`/profile/${username}/following`}>
+              <div className="cursor-pointer hover:opacity-80">
+                <span className="font-semibold">{followingCount}</span>{' '}
+                <span className="text-gray-500">following</span>
+              </div>
+            </Link>
           </div>
           
           <div>

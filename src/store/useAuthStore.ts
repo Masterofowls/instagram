@@ -20,6 +20,7 @@ interface AuthState {
   }>;
   logout: () => Promise<void>;
   fetchProfile: () => Promise<void>;
+  setProfile: (profile: Tables<'profiles'>) => void;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -91,6 +92,10 @@ export const useAuthStore = create<AuthState>()(
         if (data) {
           set({ profile: data });
         }
+      },
+      
+      setProfile: (profile: Tables<'profiles'>) => {
+        set({ profile });
       },
     }),
     {
